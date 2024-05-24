@@ -23,9 +23,11 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"html/template"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/russross/blackfriday/v2"
@@ -36,72 +38,79 @@ import (
 var generateCmd = &cobra.Command{
 	Use:   "generate",
 	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// read markdown from folder
-		// check if markdown folder exists
-		if _, err := os.Stat("markdown"); os.IsNotExist(err) {
-			fmt.Println("markdown folder does not exist")
-			return
-		}
-		// check if html folder exists
-		if _, err := os.Stat("html"); os.IsNotExist(err) {
-			fmt.Println("html folder does not exist")
-			return
-		}
-		// check if markdown folder contains markdown files
-		mdFiles, err := os.ReadDir("markdown")
-		if err != nil {
-			fmt.Println("error reading markdown folder")
-			return
-		}
-		if len(mdFiles) == 0 {
-			fmt.Println("no markdown files found")
-			return
-		}
-
-		toGenerate := []string{}
-		for _, file := range mdFiles {
-			if file.IsDir() {
-				continue
-			}
-			if file.Name()[len(file.Name())-3:] != ".md" {
-				continue
-			}
-			toGenerate = append(toGenerate, file.Name())
-		}
-
-		// parse markdown to html
-		// TODO: speed this up using goroutines
-		for _, file := range toGenerate {
-			content, err := os.ReadFile("markdown/" + file)
-			if err != nil {
-				fmt.Println("error reading file", file)
-				fmt.Println(err)
-				return
-			}
-			post := parseMarkdown(content)
-			str, err := post.generateHTML()
-			if err != nil {
-				fmt.Println("error generating html for", file)
-				fmt.Println(err)
-				return
-			}
-
-			// write html to file
-			err = os.WriteFile("html/"+strings.TrimSuffix(file, ".md")+".html", []byte(str), 0644)
-			if err != nil {
-				fmt.Println("error writing file", file)
-				fmt.Println(err)
-				return
-			}
+		if err := generateSite(); err != nil {
+			fmt.Println("error generating site")
+			fmt.Println(err)
+			os.Exit(1)
 		}
 	},
+}
+
+func generateSite() error {
+	// read markdown from folder
+	// check if markdown folder exists
+	if _, err := os.Stat("markdown"); os.IsNotExist(err) {
+		return fmt.Errorf("markdown folder does not exist: %w", err)
+	}
+	// check if html folder exists
+	if _, err := os.Stat("html"); os.IsNotExist(err) {
+		// create html folder
+		if err := os.Mkdir("html", 0755); err != nil {
+			return err
+		}
+	}
+	// check if markdown folder contains markdown files
+	mdFiles, err := os.ReadDir("markdown")
+	if err != nil {
+		return err
+	}
+	if len(mdFiles) == 0 {
+		return errors.New("no markdown files found in markdown folder")
+	}
+
+	toGenerate := []string{}
+	for _, file := range mdFiles {
+		if file.IsDir() {
+			continue
+		}
+		if filepath.Ext(file.Name()) != ".md" && filepath.Ext(file.Name()) != ".markdown" {
+			continue
+		}
+		toGenerate = append(toGenerate, file.Name())
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	tmpl := template.Must(template.New("post").ParseFiles(wd + "/templates/post.html"))
+
+	// parse markdown to html
+	// TODO: speed this up using goroutines
+	for _, file := range toGenerate {
+		// TODO: read file line by line
+		content, err := os.ReadFile("markdown/" + file)
+		if err != nil {
+			return err
+		}
+		post, err := parseMarkdown(content)
+		if err != nil {
+			return err
+		}
+		str, err := post.generateHTML(tmpl)
+		if err != nil {
+			return err
+		}
+
+		// write html to file
+		err = os.WriteFile("html/"+strings.TrimSuffix(file, ".md")+".html", []byte(str), 0644)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 type post struct {
@@ -111,16 +120,8 @@ type post struct {
 	Content  template.HTML
 }
 
-func (p *post) generateHTML() (string, error) {
+func (p *post) generateHTML(tmpl *template.Template) (string, error) {
 	// convert markdown to html
-
-	var err error
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-
-	tmpl := template.Must(template.New("post").ParseFiles(wd + "/templates/post.html"))
 
 	content := string(blackfriday.Run([]byte(p.Markdown)))
 	p.Content = template.HTML(content)
@@ -136,6 +137,10 @@ func (p *post) generateHTML() (string, error) {
 	return result, nil
 }
 
+func removeQuotes(str string) string {
+	return strings.ReplaceAll(str, "\"", "")
+}
+
 // parseMarkdown reads a markdown file and returns a post struct
 // containing the metadata and content
 // metadata is expected to be in the format:
@@ -144,15 +149,12 @@ func (p *post) generateHTML() (string, error) {
 // date: "YYYY-MM-DD"
 // ---
 // content
-func parseMarkdown(content []byte) post {
+func parseMarkdown(content []byte) (post, error) {
 	p := post{}
-	contentStr := string(content)
-	// read the file line by line
-	// if the line is "---" then we are at the metadata
-	// if the line is "---" and we have already read metadata, then we are at the content
+	lines := strings.Split(string(content), "\n")
 	readMetadata := false
 	contentLine := 0
-	for i, line := range strings.Split(contentStr, "\n") {
+	for i, line := range lines {
 		if line == "---" {
 			if readMetadata {
 				contentLine = i
@@ -165,7 +167,7 @@ func parseMarkdown(content []byte) post {
 			// split the line by ":"
 			metaArr := strings.Split(line, ":")
 			if len(metaArr) != 2 {
-				continue
+				return post{}, errors.New("metadata line does not contain a colon")
 			}
 			// trim the whitespace from the parts
 			metaArr[0] = strings.TrimSpace(metaArr[0])
@@ -173,17 +175,21 @@ func parseMarkdown(content []byte) post {
 
 			switch metaArr[0] {
 			case "title":
-				p.Title = strings.ReplaceAll(metaArr[1], "\"", "")
+				p.Title = removeQuotes(metaArr[1])
 			case "date":
-				p.Date = strings.ReplaceAll(metaArr[1], "\"", "")
+				p.Date = removeQuotes(metaArr[1])
 			}
 		}
 	}
 
-	// the rest of the file is the content
-	p.Markdown = strings.Join(strings.Split(contentStr, "\n")[contentLine+1:], "\n")
+	if !readMetadata {
+		return post{}, errors.New("metadata not found")
+	}
 
-	return p
+	// the rest of the file is the content
+	p.Markdown = strings.Join(lines[contentLine+1:], "\n")
+
+	return p, nil
 }
 
 func init() {
