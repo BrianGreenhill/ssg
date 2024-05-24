@@ -22,7 +22,9 @@ THE SOFTWARE.
 package cmd
 
 import (
+	"bytes"
 	"fmt"
+	"html/template"
 	"os"
 	"strings"
 
@@ -77,7 +79,6 @@ to quickly create a Cobra application.`,
 		// parse markdown to html
 		// TODO: speed this up using goroutines
 		for _, file := range toGenerate {
-			fmt.Println("parsing", file)
 			content, err := os.ReadFile("markdown/" + file)
 			if err != nil {
 				fmt.Println("error reading file", file)
@@ -85,10 +86,15 @@ to quickly create a Cobra application.`,
 				return
 			}
 			post := parseMarkdown(content)
-			post.generateHTML()
+			str, err := post.generateHTML()
+			if err != nil {
+				fmt.Println("error generating html for", file)
+				fmt.Println(err)
+				return
+			}
 
 			// write html to file
-			err = os.WriteFile("html/"+strings.TrimSuffix(file, ".md")+".html", []byte(post.HTML), 0644)
+			err = os.WriteFile("html/"+strings.TrimSuffix(file, ".md")+".html", []byte(str), 0644)
 			if err != nil {
 				fmt.Println("error writing file", file)
 				fmt.Println(err)
@@ -99,17 +105,35 @@ to quickly create a Cobra application.`,
 }
 
 type post struct {
-	Title   string
-	Date    string
-	Content string
-	HTML    string
+	Title    string
+	Date     string
+	Markdown string
+	Content  template.HTML
 }
 
-func (p *post) generateHTML() {
+func (p *post) generateHTML() (string, error) {
 	// convert markdown to html
-	p.Content = string(blackfriday.Run([]byte(p.Content)))
-	// for now, just wrap the content in a div
-	p.HTML = "<html><head><title>" + p.Title + "</title></head><body><div>" + p.Date + "</div><div>" + p.Content + "</div></body></html>"
+
+	var err error
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	tmpl := template.Must(template.New("post").ParseFiles(wd + "/templates/post.html"))
+
+	content := string(blackfriday.Run([]byte(p.Markdown)))
+	p.Content = template.HTML(content)
+
+	// execute template into string
+	var strBuffer bytes.Buffer
+	if err := tmpl.Execute(&strBuffer, p); err != nil {
+		return "", err
+	}
+
+	result := strBuffer.String()
+
+	return result, nil
 }
 
 // parseMarkdown reads a markdown file and returns a post struct
@@ -149,15 +173,15 @@ func parseMarkdown(content []byte) post {
 
 			switch metaArr[0] {
 			case "title":
-				p.Title = metaArr[1]
+				p.Title = strings.ReplaceAll(metaArr[1], "\"", "")
 			case "date":
-				p.Date = metaArr[1]
+				p.Date = strings.ReplaceAll(metaArr[1], "\"", "")
 			}
 		}
 	}
 
 	// the rest of the file is the content
-	p.Content = strings.Join(strings.Split(contentStr, "\n")[contentLine+1:], "\n")
+	p.Markdown = strings.Join(strings.Split(contentStr, "\n")[contentLine+1:], "\n")
 
 	return p
 }

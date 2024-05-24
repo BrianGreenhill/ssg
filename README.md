@@ -21,8 +21,8 @@ go install github.com/briangreenhill/ssg@latest
 ### generator
 
 ## Features
-- [ ] Markdown to HTML
-- [ ] Template rendering
+- [x] Markdown to HTML
+- [x] Template rendering
 - [ ] Configuration
 - [ ] CLI
 - [ ] Watch mode
