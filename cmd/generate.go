@@ -29,17 +29,35 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/russross/blackfriday/v2"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
+
+type config struct {
+	Title       string
+	Author      string
+	AuthorImg   string
+	InputDir    string
+	OutputDir   string
+	TemplateDir string
+	Favicon     string
+}
 
 // generateCmd represents the generate command
 var generateCmd = &cobra.Command{
 	Use:   "generate",
 	Short: "A brief description of your command",
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := generateSite(); err != nil {
+		var cfg config
+		if err := viper.Unmarshal(&cfg); err != nil {
+			fmt.Println("error unmarshalling config")
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		if err := generateSite(cfg); err != nil {
 			fmt.Println("error generating site")
 			fmt.Println(err)
 			os.Exit(1)
@@ -47,26 +65,26 @@ var generateCmd = &cobra.Command{
 	},
 }
 
-func generateSite() error {
+func generateSite(cfg config) error {
 	// read markdown from folder
 	// check if markdown folder exists
-	if _, err := os.Stat("markdown"); os.IsNotExist(err) {
+	if _, err := os.Stat(cfg.InputDir); os.IsNotExist(err) {
 		return fmt.Errorf("markdown folder does not exist: %w", err)
 	}
 	// check if html folder exists
-	if _, err := os.Stat("html"); os.IsNotExist(err) {
+	if _, err := os.Stat(cfg.OutputDir); os.IsNotExist(err) {
 		// create html folder
-		if err := os.Mkdir("html", 0755); err != nil {
+		if err := os.Mkdir(cfg.OutputDir, 0755); err != nil {
 			return err
 		}
 	}
 	// check if markdown folder contains markdown files
-	mdFiles, err := os.ReadDir("markdown")
+	mdFiles, err := os.ReadDir(cfg.InputDir)
 	if err != nil {
 		return err
 	}
 	if len(mdFiles) == 0 {
-		return errors.New("no markdown files found in markdown folder")
+		return fmt.Errorf("no markdown files found in %s folder", cfg.InputDir)
 	}
 
 	toGenerate := []string{}
@@ -84,13 +102,20 @@ func generateSite() error {
 		return err
 	}
 
-	tmpl := template.Must(template.New("post").ParseFiles(wd + "/templates/post.html"))
+	funcMap := template.FuncMap{
+		"now": time.Now,
+		"hasCover": func(s string) bool {
+			return s != ""
+		},
+	}
+
+	tmpl := template.Must(template.New("post").Funcs(funcMap).ParseFiles(wd + "/" + cfg.TemplateDir + "/" + "post.html"))
 
 	// parse markdown to html
 	// TODO: speed this up using goroutines
 	for _, file := range toGenerate {
 		// TODO: read file line by line
-		content, err := os.ReadFile("markdown/" + file)
+		content, err := os.ReadFile(cfg.InputDir + "/" + file)
 		if err != nil {
 			return err
 		}
@@ -98,13 +123,22 @@ func generateSite() error {
 		if err != nil {
 			return err
 		}
+
+		if post.Author == "" {
+			post.Author = cfg.Author
+		}
+
+		if post.AuthorImg == "" {
+			post.AuthorImg = cfg.AuthorImg
+		}
+
 		str, err := post.generateHTML(tmpl)
 		if err != nil {
 			return err
 		}
 
 		// write html to file
-		err = os.WriteFile("html/"+strings.TrimSuffix(file, ".md")+".html", []byte(str), 0644)
+		err = os.WriteFile(cfg.OutputDir+"/"+strings.TrimSuffix(file, ".md")+".html", []byte(str), 0644)
 		if err != nil {
 			return err
 		}
@@ -114,15 +148,23 @@ func generateSite() error {
 }
 
 type post struct {
-	Title    string
-	Date     string
-	Markdown string
-	Content  template.HTML
+	Config      config
+	Title       string
+	Author      string
+	Description string
+	AuthorImg   string
+	CoverImg    string
+	Date        string
+	Markdown    string
+	Content     template.HTML
 }
 
 func (p *post) generateHTML(tmpl *template.Template) (string, error) {
-	// convert markdown to html
-
+	// read config into post struct
+	p.Config = config{}
+	if err := viper.Unmarshal(&p.Config); err != nil {
+		return "", err
+	}
 	content := string(blackfriday.Run([]byte(p.Markdown)))
 	p.Content = template.HTML(content)
 
@@ -147,6 +189,9 @@ func removeQuotes(str string) string {
 // ---
 // title: "title"
 // date: "YYYY-MM-DD"
+// author: "author"
+// description: "description"
+// authorImg: "http://example.com/image.jpg"
 // ---
 // content
 func parseMarkdown(content []byte) (post, error) {
@@ -164,12 +209,19 @@ func parseMarkdown(content []byte) (post, error) {
 			continue
 		}
 		if readMetadata {
-			// split the line by ":"
 			metaArr := strings.Split(line, ":")
 			if len(metaArr) != 2 {
-				return post{}, errors.New("metadata line does not contain a colon")
+				if strings.Contains(line, "http") {
+					switch {
+					case strings.Contains(line, "author_image"):
+						metaArr = []string{"author_image", strings.Replace(line, "author_image:", "", 1)}
+					case strings.Contains(line, "cover_image"):
+						metaArr = []string{"cover_image", strings.Replace(line, "cover_image:", "", 1)}
+					}
+				} else {
+					return post{}, errors.New("metadata line does not contain a colon")
+				}
 			}
-			// trim the whitespace from the parts
 			metaArr[0] = strings.TrimSpace(metaArr[0])
 			metaArr[1] = strings.TrimSpace(metaArr[1])
 
@@ -178,6 +230,14 @@ func parseMarkdown(content []byte) (post, error) {
 				p.Title = removeQuotes(metaArr[1])
 			case "date":
 				p.Date = removeQuotes(metaArr[1])
+			case "author":
+				p.Author = removeQuotes(metaArr[1])
+			case "description":
+				p.Description = removeQuotes(metaArr[1])
+			case "author_image":
+				p.AuthorImg = removeQuotes(metaArr[1])
+			case "cover_image":
+				p.CoverImg = removeQuotes(metaArr[1])
 			}
 		}
 	}

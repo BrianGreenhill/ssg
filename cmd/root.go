@@ -81,6 +81,7 @@ func initConfig() {
 
 		// Search config in home directory with name ".ssg" (without extension).
 		viper.AddConfigPath(home)
+		viper.AddConfigPath(".")
 		viper.SetConfigType("yaml")
 		viper.SetConfigName(".ssg")
 	}
