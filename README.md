@@ -25,6 +25,10 @@ go install github.com/briangreenhill/ssg@latest
 - [x] Template rendering
 - [x] Configuration
 - [x] Watch mode
+- [x] static assets
+- [x] blog site generation
+- [ ] individual post pages
+- [ ] blog site links to posts
 - [ ] CLI
 - [ ] Deployment
 - [ ] URL Routing

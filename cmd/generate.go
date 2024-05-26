@@ -22,7 +22,6 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"html/template"
@@ -43,7 +42,7 @@ type config struct {
 	InputDir    string
 	OutputDir   string
 	TemplateDir string
-	Favicon     string
+	AssetsDir   string
 }
 
 // generateCmd represents the generate command
@@ -65,20 +64,60 @@ var generateCmd = &cobra.Command{
 	},
 }
 
-func generateSite(cfg config) error {
-	// read markdown from folder
-	// check if markdown folder exists
-	if _, err := os.Stat(cfg.InputDir); os.IsNotExist(err) {
-		return fmt.Errorf("markdown folder does not exist: %w", err)
+func copyFile(src, dst string) error {
+	r, err := os.Open(src)
+	if err != nil {
+		return err
 	}
-	// check if html folder exists
+	defer r.Close()
+	w, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer w.Close()
+	if _, err := w.ReadFrom(r); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func generateSite(cfg config) error {
+	if _, err := os.Stat(cfg.InputDir); os.IsNotExist(err) {
+		return fmt.Errorf("input folder does not exist: %w", err)
+	}
 	if _, err := os.Stat(cfg.OutputDir); os.IsNotExist(err) {
-		// create html folder
 		if err := os.Mkdir(cfg.OutputDir, 0755); err != nil {
 			return err
 		}
 	}
-	// check if markdown folder contains markdown files
+	if _, err := os.Stat(cfg.TemplateDir); os.IsNotExist(err) {
+		return fmt.Errorf("template folder does not exist: %w", err)
+	}
+	if _, err := os.Stat(cfg.AssetsDir); os.IsNotExist(err) {
+		if err := os.Mkdir(cfg.AssetsDir, 0755); err != nil {
+			return err
+		}
+	}
+
+	assets, err := os.ReadDir(cfg.AssetsDir)
+	if err != nil {
+		return err
+	}
+	for _, asset := range assets {
+		if asset.IsDir() {
+			continue
+		}
+		if err := copyFile(cfg.AssetsDir+"/"+asset.Name(), cfg.OutputDir+"/assets/"+asset.Name()); err != nil {
+			return err
+		}
+	}
+
+	// move style.css from template to output directory
+	if err := copyFile(cfg.TemplateDir+"/style.css", cfg.OutputDir+"/assets/style.css"); err != nil {
+		return err
+	}
+
 	mdFiles, err := os.ReadDir(cfg.InputDir)
 	if err != nil {
 		return err
@@ -87,96 +126,83 @@ func generateSite(cfg config) error {
 		return fmt.Errorf("no markdown files found in %s folder", cfg.InputDir)
 	}
 
-	toGenerate := []string{}
-	for _, file := range mdFiles {
-		if file.IsDir() {
-			continue
-		}
-		if filepath.Ext(file.Name()) != ".md" && filepath.Ext(file.Name()) != ".markdown" {
-			continue
-		}
-		toGenerate = append(toGenerate, file.Name())
+	s := site{
+		Config: cfg,
 	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return err
+
+	for _, file := range mdFiles {
+		if !strings.HasSuffix(file.Name(), ".md") && !strings.HasSuffix(file.Name(), ".markdown") {
+			continue
+		}
+
+		// build post object from markdown file
+		// read file contents into memory
+		fbytes, err := os.ReadFile(s.Config.InputDir + "/" + file.Name())
+		if err != nil {
+			return err
+		}
+		p, err := parseMarkdown(fbytes)
+		if err != nil {
+			return err
+		}
+
+		// add post to site struct
+		s.Posts = append(s.Posts, p)
 	}
 
 	funcMap := template.FuncMap{
 		"now": time.Now,
-		"hasCover": func(s string) bool {
-			return s != ""
+		"hasCover": func(p post) bool {
+			return p.CoverImg != ""
+		},
+		"sortByDate": func(posts []post) []post {
+			// sort posts by date
+			// newest first
+			for i := 0; i < len(posts); i++ {
+				for j := i + 1; j < len(posts); j++ {
+					if posts[i].Date < posts[j].Date {
+						posts[i], posts[j] = posts[j], posts[i]
+					}
+				}
+			}
+			return posts
 		},
 	}
 
-	tmpl := template.Must(template.New("post").Funcs(funcMap).ParseFiles(wd + "/" + cfg.TemplateDir + "/" + "post.html"))
+	tmpl := template.Must(template.New("baseHTML").Funcs(funcMap).ParseGlob(filepath.Join(cfg.TemplateDir, "*.html")))
+	// write site to output directory as index.html
 
-	// parse markdown to html
-	// TODO: speed this up using goroutines
-	for _, file := range toGenerate {
-		// TODO: read file line by line
-		content, err := os.ReadFile(cfg.InputDir + "/" + file)
-		if err != nil {
-			return err
-		}
-		post, err := parseMarkdown(content)
-		if err != nil {
-			return err
-		}
-
-		if post.Author == "" {
-			post.Author = cfg.Author
-		}
-
-		if post.AuthorImg == "" {
-			post.AuthorImg = cfg.AuthorImg
-		}
-
-		str, err := post.generateHTML(tmpl)
-		if err != nil {
-			return err
-		}
-
-		// write html to file
-		err = os.WriteFile(cfg.OutputDir+"/"+strings.TrimSuffix(file, ".md")+".html", []byte(str), 0644)
-		if err != nil {
-			return err
-		}
+	file, err := os.Create(cfg.OutputDir + "/index.html")
+	if err != nil {
+		return err
 	}
+
+	if err := tmpl.ExecuteTemplate(file, "baseHTML", s); err != nil {
+		return err
+	}
+
+	// move static files to output directory
 
 	return nil
 }
 
+type site struct {
+	Config config
+	Posts  []post
+}
+
 type post struct {
-	Config      config
 	Title       string
 	Author      string
 	Description string
 	AuthorImg   string
 	CoverImg    string
 	Date        string
-	Markdown    string
 	Content     template.HTML
 }
 
-func (p *post) generateHTML(tmpl *template.Template) (string, error) {
-	// read config into post struct
-	p.Config = config{}
-	if err := viper.Unmarshal(&p.Config); err != nil {
-		return "", err
-	}
-	content := string(blackfriday.Run([]byte(p.Markdown)))
-	p.Content = template.HTML(content)
-
-	// execute template into string
-	var strBuffer bytes.Buffer
-	if err := tmpl.Execute(&strBuffer, p); err != nil {
-		return "", err
-	}
-
-	result := strBuffer.String()
-
-	return result, nil
+func (p *post) getFileName() string {
+	return p.Date + "-" + strings.ReplaceAll(p.Title, " ", "_") + ".html"
 }
 
 func removeQuotes(str string) string {
@@ -247,7 +273,8 @@ func parseMarkdown(content []byte) (post, error) {
 	}
 
 	// the rest of the file is the content
-	p.Markdown = strings.Join(lines[contentLine+1:], "\n")
+	mdContent := strings.Join(lines[contentLine:], "\n")
+	p.Content = template.HTML(blackfriday.Run([]byte(mdContent)))
 
 	return p, nil
 }
