@@ -1,0 +1,7 @@
+title: "Ian Curtis - Blog"
+author: "Ian Curtis"
+authorImg: "https://avatars.githubusercontent.com/u/1234567?v=4"
+inputDir: "markdown"
+assetsDir: "assets"
+outputDir: "public"
+templateDir: "templates"
