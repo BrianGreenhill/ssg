@@ -24,7 +24,7 @@ go install github.com/briangreenhill/ssg@latest
 - [x] Markdown to HTML
 - [x] Template rendering
 - [x] Configuration
+- [x] Watch mode
 - [ ] CLI
-- [ ] Watch mode
-- [ ] URL Routing
 - [ ] Deployment
+- [ ] URL Routing
