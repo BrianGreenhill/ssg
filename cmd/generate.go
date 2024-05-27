@@ -22,7 +22,7 @@ THE SOFTWARE.
 package cmd
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"html/template"
 	"os"
@@ -30,9 +30,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/russross/blackfriday/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/text"
+	"go.abhg.dev/goldmark/frontmatter"
 )
 
 type config struct {
@@ -75,21 +78,21 @@ func copyFile(src, dst string) error {
 
 	r, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("error opening file to copy: %w", err)
 	}
 	defer r.Close()
 
 	// if the destination file already exists, remove it
 	if _, err := os.Stat(dst); err == nil {
 		if err := os.Remove(dst); err != nil {
-			return err
+			return fmt.Errorf("error removing destination file: %w", err)
 		}
 	}
 
 	// create destination file
 	w, err := os.Create(dst)
 	if err != nil {
-		return err
+		return fmt.Errorf("error creating destination file: %w", err)
 	}
 	defer w.Close()
 
@@ -122,6 +125,10 @@ func generateSite(cfg config) error {
 	assetsDir := cfg.getAssetsDir()
 	themeStyle := themeDir + "/style.css"
 
+	if _, err := os.Stat(themeDir); os.IsNotExist(err) {
+		return fmt.Errorf("theme directory does not exist: %w", err)
+	}
+
 	if _, err := os.Stat(cfg.ContentDir); os.IsNotExist(err) {
 		return fmt.Errorf("input folder does not exist: %w", err)
 	}
@@ -129,16 +136,20 @@ func generateSite(cfg config) error {
 		if err := os.Mkdir(cfg.OutputDir, 0755); err != nil {
 			return err
 		}
+		if err := os.Mkdir(cfg.OutputDir+"/assets", 0755); err != nil {
+			return err
+		}
+		if err := os.Mkdir(cfg.OutputDir+"/posts", 0755); err != nil {
+			return err
+		}
 	}
+
 	if _, err := os.Stat(postsDir); os.IsNotExist(err) {
 		if err := os.Mkdir(postsDir, 0755); err != nil {
 			return err
 		}
 	}
 
-	if _, err := os.Stat(themeDir); os.IsNotExist(err) {
-		return fmt.Errorf("template folder does not exist: %w", err)
-	}
 	if _, err := os.Stat(assetsDir); os.IsNotExist(err) {
 		if err := os.Mkdir(assetsDir, 0755); err != nil {
 			return err
@@ -153,7 +164,8 @@ func generateSite(cfg config) error {
 		if asset.IsDir() {
 			continue
 		}
-		if err := copyFile(assetsDir+"/"+asset.Name(), assetsDir+"/"+asset.Name()); err != nil {
+		fmt.Println("copying asset: ", asset.Name())
+		if err := copyFile(assetsDir+"/"+asset.Name(), cfg.OutputDir+"/assets/"+asset.Name()); err != nil {
 			return err
 		}
 	}
@@ -253,22 +265,18 @@ type site struct {
 }
 
 type post struct {
-	Title       string
-	Author      string
-	Description string
-	AuthorImg   string
-	CoverImg    string
-	Date        string
-	Link        string
-	Content     template.HTML
+	Title       string        `yaml:"title"`
+	Author      string        `yaml:"author"`
+	Description string        `yaml:"description"`
+	AuthorImg   string        `yaml:"author_image"`
+	CoverImg    string        `yaml:"cover_image"`
+	Date        string        `yaml:"date"`
+	Link        string        `yaml:"link"`
+	Content     template.HTML `yaml:"-"`
 }
 
 func (p *post) getFileName() string {
 	return p.Date + "-" + strings.ReplaceAll(p.Title, " ", "_") + ".html"
-}
-
-func removeQuotes(str string) string {
-	return strings.ReplaceAll(str, "\"", "")
 }
 
 // parseMarkdown reads a markdown file and returns a post struct
@@ -279,64 +287,31 @@ func removeQuotes(str string) string {
 // date: "YYYY-MM-DD"
 // author: "author"
 // description: "description"
-// authorImg: "http://example.com/image.jpg"
+// author_image: "http://example.com/image.jpg"
+// cover_image: "http://example.com/image.jpg"
 // ---
 // content
 func parseMarkdown(content []byte) (post, error) {
-	p := post{}
-	lines := strings.Split(string(content), "\n")
-	readMetadata := false
-	contentLine := 0
-	for i, line := range lines {
-		if line == "---" {
-			if readMetadata {
-				contentLine = i
-				break
-			}
-			readMetadata = true
-			continue
-		}
-		if readMetadata {
-			metaArr := strings.Split(line, ":")
-			if len(metaArr) != 2 {
-				if strings.Contains(line, "http") {
-					switch {
-					case strings.Contains(line, "author_image"):
-						metaArr = []string{"author_image", strings.Replace(line, "author_image:", "", 1)}
-					case strings.Contains(line, "cover_image"):
-						metaArr = []string{"cover_image", strings.Replace(line, "cover_image:", "", 1)}
-					}
-				} else {
-					return post{}, errors.New("metadata line does not contain a colon")
-				}
-			}
-			metaArr[0] = strings.TrimSpace(metaArr[0])
-			metaArr[1] = strings.TrimSpace(metaArr[1])
+	ctx := parser.NewContext()
+	md := goldmark.New(goldmark.WithExtensions(&frontmatter.Extender{}))
+	md.Parser().Parse(text.NewReader(content), parser.WithContext(ctx))
 
-			switch metaArr[0] {
-			case "title":
-				p.Title = removeQuotes(metaArr[1])
-			case "date":
-				p.Date = removeQuotes(metaArr[1])
-			case "author":
-				p.Author = removeQuotes(metaArr[1])
-			case "description":
-				p.Description = removeQuotes(metaArr[1])
-			case "author_image":
-				p.AuthorImg = removeQuotes(metaArr[1])
-			case "cover_image":
-				p.CoverImg = removeQuotes(metaArr[1])
-			}
-		}
+	d := frontmatter.Get(ctx)
+	if d == nil {
+		return post{}, fmt.Errorf("no frontmatter found")
 	}
 
-	if !readMetadata {
-		return post{}, errors.New("metadata not found")
+	var p post
+	if err := d.Decode(&p); err != nil {
+		return post{}, err
 	}
 
 	// the rest of the file is the content
-	mdContent := strings.Join(lines[contentLine:], "\n")
-	p.Content = template.HTML(blackfriday.Run([]byte(mdContent)))
+	var buf bytes.Buffer
+	if err := md.Convert(content, &buf); err != nil {
+		return post{}, err
+	}
+	p.Content = template.HTML(buf.String())
 
 	return p, nil
 }
