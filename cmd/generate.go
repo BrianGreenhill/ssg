@@ -54,7 +54,7 @@ type config struct {
 // generateCmd represents the generate command
 var generateCmd = &cobra.Command{
 	Use:   "generate",
-	Short: "A brief description of your command",
+	Short: "Generate a static site from markdown files",
 	Run: func(cmd *cobra.Command, args []string) {
 		var cfg config
 		if err := viper.Unmarshal(&cfg); err != nil {

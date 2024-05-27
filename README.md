@@ -28,6 +28,7 @@ go install github.com/briangreenhill/ssg@latest
 - [x] theme support
 - [x] individual post pages
 - [x] blog site links to posts
+- [ ] create initial user experience (theme, config, etc)
 - [ ] CLI
 - [ ] Deployment
 - [ ] URL Routing
