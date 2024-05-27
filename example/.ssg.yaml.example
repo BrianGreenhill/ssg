@@ -1,10 +1,10 @@
-theme: "default"
-title: "Ian Curtis - Blog"
-author: "Ian Curtis"
-authorImg: "https://avatars.githubusercontent.com/u/1234568?v=4"
-contentDir: "."
-outputDir: "public"
-templateDir: "templates"
-github: "https://github.com/mona"
-linkedin: "https://linkedin.com/example"
-email: "user@example.net"
+title: Finn the Human
+authorImg: https://octodex.github.com/images/adventure-cat.png
+theme: default
+outputDir: public
+description: Mathematical! I'm Finn the Human!
+github: https://github.com/mona
+linkedin: https://linkedin.com/example
+email: user@example.net
+contentDir: content
+author: Finn Mertens
