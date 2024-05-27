@@ -51,10 +51,26 @@ type config struct {
 	Email       string
 }
 
+type site struct {
+	Config config
+	Posts  []post
+}
+
+type post struct {
+	Title       string        `yaml:"title"`
+	Author      string        `yaml:"author"`
+	Description string        `yaml:"description"`
+	AuthorImg   string        `yaml:"author_image"`
+	CoverImg    string        `yaml:"cover_image"`
+	Date        string        `yaml:"date"`
+	Link        string        `yaml:"link"`
+	Content     template.HTML `yaml:"-"`
+}
+
 // generateCmd represents the generate command
 var generateCmd = &cobra.Command{
 	Use:   "generate",
-	Short: "A brief description of your command",
+	Short: "Generate a static site from markdown files",
 	Run: func(cmd *cobra.Command, args []string) {
 		var cfg config
 		if err := viper.Unmarshal(&cfg); err != nil {
@@ -120,39 +136,42 @@ func generateSite(cfg config) error {
 		Config: cfg,
 	}
 
-	themeDir := cfg.getThemeDir()
-	postsDir := cfg.getPostsDir()
-	assetsDir := cfg.getAssetsDir()
+	themeDir := s.Config.getThemeDir()
+	postsDir := s.Config.getPostsDir()
+	assetsDir := s.Config.getAssetsDir()
 	themeStyle := themeDir + "/style.css"
+	themeAssetsDir := themeDir + "/assets"
 
 	if _, err := os.Stat(themeDir); os.IsNotExist(err) {
 		return fmt.Errorf("theme directory does not exist: %w", err)
 	}
 
-	if _, err := os.Stat(cfg.ContentDir); os.IsNotExist(err) {
-		return fmt.Errorf("input folder does not exist: %w", err)
+	if _, err := os.Stat(s.Config.ContentDir); os.IsNotExist(err) {
+		if err := os.Mkdir("./"+s.Config.ContentDir, 0755); err != nil {
+			return fmt.Errorf("error creating content directory: %w", err)
+		}
 	}
-	if _, err := os.Stat(cfg.OutputDir); os.IsNotExist(err) {
-		if err := os.Mkdir(cfg.OutputDir, 0755); err != nil {
-			return err
+	if _, err := os.Stat(s.Config.OutputDir); os.IsNotExist(err) {
+		if err := os.Mkdir(s.Config.OutputDir, 0755); err != nil {
+			return fmt.Errorf("error creating output directory: %w", err)
 		}
-		if err := os.Mkdir(cfg.OutputDir+"/assets", 0755); err != nil {
-			return err
+		if err := os.Mkdir(s.Config.OutputDir+"/assets", 0755); err != nil {
+			return fmt.Errorf("error creating output assets directory: %w", err)
 		}
-		if err := os.Mkdir(cfg.OutputDir+"/posts", 0755); err != nil {
-			return err
+		if err := os.Mkdir(s.Config.OutputDir+"/posts", 0755); err != nil {
+			return fmt.Errorf("error creating output posts directory: %w", err)
 		}
 	}
 
 	if _, err := os.Stat(postsDir); os.IsNotExist(err) {
 		if err := os.Mkdir(postsDir, 0755); err != nil {
-			return err
+			return fmt.Errorf("error creating posts directory: %w", err)
 		}
 	}
 
 	if _, err := os.Stat(assetsDir); os.IsNotExist(err) {
 		if err := os.Mkdir(assetsDir, 0755); err != nil {
-			return err
+			return fmt.Errorf("error creating local assets directory: %w", err)
 		}
 	}
 
@@ -165,13 +184,27 @@ func generateSite(cfg config) error {
 			continue
 		}
 		fmt.Println("copying asset: ", asset.Name())
-		if err := copyFile(assetsDir+"/"+asset.Name(), cfg.OutputDir+"/assets/"+asset.Name()); err != nil {
+		if err := copyFile(assetsDir+"/"+asset.Name(), "./"+s.Config.OutputDir+"/assets/"+asset.Name()); err != nil {
+			return err
+		}
+	}
+
+	themeAssets, err := os.ReadDir(themeAssetsDir)
+	if err != nil {
+		return err
+	}
+	for _, asset := range themeAssets {
+		if asset.IsDir() {
+			continue
+		}
+		fmt.Println("copying theme asset: ", asset.Name())
+		if err := copyFile(themeAssetsDir+"/"+asset.Name(), "./"+s.Config.OutputDir+"/assets/"+asset.Name()); err != nil {
 			return err
 		}
 	}
 
 	// move style.css from template to output directory
-	if err := copyFile(themeStyle, cfg.OutputDir+"/assets/style.css"); err != nil {
+	if err := copyFile(themeStyle, s.Config.OutputDir+"/assets/style.css"); err != nil {
 		return err
 	}
 
@@ -226,7 +259,7 @@ func generateSite(cfg config) error {
 
 	// create post html files in posts directory
 	for _, p := range s.Posts {
-		file, err := os.Create(cfg.OutputDir + "/posts/" + p.getFileName())
+		file, err := os.Create(s.Config.OutputDir + "/posts/" + p.getFileName())
 		if err != nil {
 			return err
 		}
@@ -238,7 +271,7 @@ func generateSite(cfg config) error {
 			Config config
 		}{
 			Post:   p,
-			Config: cfg,
+			Config: s.Config,
 		}); err != nil {
 			return err
 		}
@@ -247,7 +280,7 @@ func generateSite(cfg config) error {
 	tmpl := template.Must(template.New("baseHTML").Funcs(funcMap).ParseGlob(filepath.Join(themeDir, "*.html")))
 	// write site to output directory as index.html
 
-	file, err := os.Create(cfg.OutputDir + "/index.html")
+	file, err := os.Create(s.Config.OutputDir + "/index.html")
 	if err != nil {
 		return err
 	}
@@ -257,22 +290,6 @@ func generateSite(cfg config) error {
 	}
 
 	return nil
-}
-
-type site struct {
-	Config config
-	Posts  []post
-}
-
-type post struct {
-	Title       string        `yaml:"title"`
-	Author      string        `yaml:"author"`
-	Description string        `yaml:"description"`
-	AuthorImg   string        `yaml:"author_image"`
-	CoverImg    string        `yaml:"cover_image"`
-	Date        string        `yaml:"date"`
-	Link        string        `yaml:"link"`
-	Content     template.HTML `yaml:"-"`
 }
 
 func (p *post) getFileName() string {
