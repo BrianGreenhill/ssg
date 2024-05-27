@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/manifoldco/promptui"
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -40,58 +40,81 @@ var newCmd = &cobra.Command{
 		// create site directories
 		// pull the requested theme
 		// create a new config file
-		deletePrompt := promptui.Prompt{
-			Label:     "Do you want to delete the existing site? You cannot undo this action.",
-			IsConfirm: true,
-		}
 
-		needSite := true
+		var needSite bool
+		form := huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title("Do you want to delete the existing site? You cannot undo this action.").
+					Value(&needSite)),
+		)
 
 		if _, err := os.Stat(".ssg.yaml"); err == nil {
-			fmt.Println("A site already exists in this directory")
-			_, err := deletePrompt.Run()
-			if err != nil {
-				// user said no
-				needSite = false
-			} else {
-				if err := os.RemoveAll(".ssg.yaml"); err != nil {
-					fmt.Println("error deleting existing site")
-					fmt.Println(err)
-					os.Exit(1)
-				}
-				fmt.Println("Existing site deleted")
+			if err := form.Run(); err != nil {
+				fmt.Println("error running form")
+				fmt.Println(err)
+				os.Exit(1)
 			}
-
 		}
 
 		if needSite {
 
-			prompts := map[string]promptui.Prompt{
-				"title":       {Label: "What is the title of your site?"},
-				"author":      {Label: "What is your name?"},
-				"authorImg":   {Label: "What is the URL of your image?"},
-				"description": {Label: "What is the description of your site?"},
-				"github":      {Label: "What is your Github URL?"},
-				"linkedin":    {Label: "What is your Linkedin URL?"},
-				"email":       {Label: "What is your email address?"},
-				"outputDir":   {Label: "What is the output directory?", Default: "public"},
-				"contentDir":  {Label: "What is the content directory?", Default: "content"},
-				"theme":       {Label: "What theme do you want to use?", Default: "default"},
+			// interview user for site details
+
+			var cfg config
+			form := huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Enter the site title").
+						Placeholder("My Site").
+						Value(&cfg.Title),
+					huh.NewInput().
+						Title("Enter the author's name").
+						Placeholder("John Doe").
+						Value(&cfg.Author),
+					huh.NewInput().
+						Title("Enter an image URL of the author").
+						Placeholder("https://example.com/image.jpg").
+						Value(&cfg.AuthorImg),
+					huh.NewInput().
+						Title("Enter a description of the site").
+						Placeholder("A site about things").
+						Value(&cfg.Description),
+					huh.NewInput().
+						Title("Enter the GitHub URL").
+						Placeholder("https://github.com/mona").
+						Value(&cfg.Github),
+					huh.NewInput().
+						Title("Enter the LinkedIn URL").
+						Placeholder("https://linkedin.com/in/mona").
+						Value(&cfg.Linkedin),
+					huh.NewInput().
+						Title("Enter the email address").
+						Placeholder("user@email.com").
+						Value(&cfg.Email),
+				),
+			)
+
+			if err := form.Run(); err != nil {
+				fmt.Println("error running form")
+				fmt.Println(err)
+				os.Exit(1)
 			}
 
-			answers := make(map[string]string)
+			// write the config struct to the yaml file
 
-			for k, v := range prompts {
-				result, err := v.Run()
-				if err != nil {
-					fmt.Println("error getting answer")
-					fmt.Println(err)
-					os.Exit(1)
-				}
-				answers[k] = result
+			answers := map[string]string{
+				"theme":       "default",
+				"contentDir":  "content",
+				"outputDir":   "public",
+				"title":       cfg.Title,
+				"author":      cfg.Author,
+				"authorImg":   cfg.AuthorImg,
+				"description": cfg.Description,
+				"github":      cfg.Github,
+				"linkedin":    cfg.Linkedin,
+				"email":       cfg.Email,
 			}
-
-			// write answers to config file
 
 			configFile, err := os.Create(".ssg.yaml")
 			if err != nil {
@@ -120,7 +143,6 @@ var newCmd = &cobra.Command{
 
 		fmt.Println("Generating site...")
 
-		var cfg config
 		if err := viper.Unmarshal(&cfg); err != nil {
 			fmt.Println("error unmarshalling config")
 			fmt.Println(err)
@@ -133,6 +155,8 @@ var newCmd = &cobra.Command{
 			fmt.Println(err)
 			os.Exit(1)
 		}
+
+		fmt.Println("Site generated successfully. Run `ssg watch` to start the server.")
 	},
 }
 
