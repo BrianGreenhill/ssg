@@ -1,0 +1,29 @@
+{{ define "baseHTML" }}
+
+{{ template "head" .Config }}
+
+{{ template "body" .Config }}
+<section>
+    <div class="container">
+        <ul class="posts-list">
+            {{ range sortByDate .Posts }}
+            <li class="post-item">
+                <a class="post-link" href="posts/{{.Link}}">{{ .Title }}</a>
+                <p class="post-meta">{{ .Date }}</p>
+            </li>
+            {{ end }}
+        </ul>
+    </div>
+</section>
+<footer class="container">
+    <div class="social-icons">
+        <a href="{{.Config.Github}}"><img src="assets/github-mark.svg" alt="GitHub" /></a>
+        <a href="{{.Config.Linkedin}}"><img src="assets/linkedin.png" alt="LinkedIn" /></a>
+        <a href="mailto:{{.Config.Email}}"><img src="assets/email.svg" alt="Email" /></a>
+    </div>
+    &copy; {{now.UTC.Year}} {{.Config.Author}}. All rights reserved.
+</footer>
+
+{{ template "footer" .Config }}
+
+{{ end }}

@@ -2,7 +2,7 @@
 title: "My Second Post"
 description: "This is the description of my second post"
 author: "Brian Greenhill"
-author_image: "https://avatars.githubusercontent.com/u/1234567"
+author_image: "https://avatars.githubusercontent.com/u/1642339?v=4"
 cover_image: "https://images.unsplash.com/photo-1481349518771-20055b2a7b24?q=80&w=2478&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
 date: "2024-05-24"
 ---

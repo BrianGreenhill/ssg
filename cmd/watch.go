@@ -33,12 +33,13 @@ import (
 	"github.com/spf13/viper"
 )
 
+var cfg config
+
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
 	Use:   "watch",
 	Short: "Watch mode",
 	Run: func(cmd *cobra.Command, args []string) {
-		var cfg config
 		if err := viper.Unmarshal(&cfg); err != nil {
 			fmt.Println("error unmarshalling config")
 			fmt.Println(err)
@@ -62,17 +63,13 @@ var watchCmd = &cobra.Command{
 			event := <-eventChan
 			fmt.Println("Detected change in", event.Name)
 
-			if strings.HasSuffix(event.Name, ".md") {
+			if strings.HasSuffix(event.Name, ".md") || strings.HasSuffix(event.Name, ".html") || strings.HasSuffix(event.Name, ".css") || strings.HasSuffix(event.Name, ".markdown") {
 				if err := generateSite(cfg); err != nil {
 					fmt.Println("error generating site")
 					fmt.Println(err)
 				}
 			}
-
-			// make connection to browser
-			// send message to browser to reload
 		}
-
 	},
 }
 
@@ -136,11 +133,13 @@ func watchForChanges(breakpoint chan struct{}, eventChan chan<- fsnotify.Event) 
 		}
 	}()
 
-	dirToWatch := viper.GetString("inputDir")
-	if err = watcher.Add(dirToWatch); err != nil {
-		fmt.Println("error watching directory")
-		fmt.Println(err)
-		return
+	watchDirs := []string{cfg.getPostsDir(), cfg.getAssetsDir(), cfg.getThemeDir()}
+	for _, dir := range watchDirs {
+		if err = watcher.Add(dir); err != nil {
+			fmt.Println("error watching directory")
+			fmt.Println(err)
+			return
+		}
 	}
 	<-done
 }

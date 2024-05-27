@@ -36,13 +36,16 @@ import (
 )
 
 type config struct {
+	Theme       string
+	ContentDir  string
+	OutputDir   string
 	Title       string
 	Author      string
 	AuthorImg   string
-	InputDir    string
-	OutputDir   string
-	TemplateDir string
-	AssetsDir   string
+	Description string
+	Github      string
+	Linkedin    string
+	Email       string
 }
 
 // generateCmd represents the generate command
@@ -65,16 +68,31 @@ var generateCmd = &cobra.Command{
 }
 
 func copyFile(src, dst string) error {
+	// check if file to copy exists
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return fmt.Errorf("file to copy does not exist: %w", err)
+	}
+
 	r, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
+
+	// if the destination file already exists, remove it
+	if _, err := os.Stat(dst); err == nil {
+		if err := os.Remove(dst); err != nil {
+			return err
+		}
+	}
+
+	// create destination file
 	w, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	defer w.Close()
+
 	if _, err := w.ReadFrom(r); err != nil {
 		return err
 	}
@@ -82,8 +100,29 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
+func (c *config) getThemeDir() string {
+	return filepath.Join("themes", c.Theme)
+}
+
+func (c *config) getPostsDir() string {
+	return filepath.Join(c.ContentDir, "posts")
+}
+
+func (c *config) getAssetsDir() string {
+	return filepath.Join(c.ContentDir, "assets")
+}
+
 func generateSite(cfg config) error {
-	if _, err := os.Stat(cfg.InputDir); os.IsNotExist(err) {
+	s := site{
+		Config: cfg,
+	}
+
+	themeDir := cfg.getThemeDir()
+	postsDir := cfg.getPostsDir()
+	assetsDir := cfg.getAssetsDir()
+	themeStyle := themeDir + "/style.css"
+
+	if _, err := os.Stat(cfg.ContentDir); os.IsNotExist(err) {
 		return fmt.Errorf("input folder does not exist: %w", err)
 	}
 	if _, err := os.Stat(cfg.OutputDir); os.IsNotExist(err) {
@@ -91,16 +130,22 @@ func generateSite(cfg config) error {
 			return err
 		}
 	}
-	if _, err := os.Stat(cfg.TemplateDir); os.IsNotExist(err) {
-		return fmt.Errorf("template folder does not exist: %w", err)
-	}
-	if _, err := os.Stat(cfg.AssetsDir); os.IsNotExist(err) {
-		if err := os.Mkdir(cfg.AssetsDir, 0755); err != nil {
+	if _, err := os.Stat(postsDir); os.IsNotExist(err) {
+		if err := os.Mkdir(postsDir, 0755); err != nil {
 			return err
 		}
 	}
 
-	assets, err := os.ReadDir(cfg.AssetsDir)
+	if _, err := os.Stat(themeDir); os.IsNotExist(err) {
+		return fmt.Errorf("template folder does not exist: %w", err)
+	}
+	if _, err := os.Stat(assetsDir); os.IsNotExist(err) {
+		if err := os.Mkdir(assetsDir, 0755); err != nil {
+			return err
+		}
+	}
+
+	assets, err := os.ReadDir(assetsDir)
 	if err != nil {
 		return err
 	}
@@ -108,26 +153,22 @@ func generateSite(cfg config) error {
 		if asset.IsDir() {
 			continue
 		}
-		if err := copyFile(cfg.AssetsDir+"/"+asset.Name(), cfg.OutputDir+"/assets/"+asset.Name()); err != nil {
+		if err := copyFile(assetsDir+"/"+asset.Name(), assetsDir+"/"+asset.Name()); err != nil {
 			return err
 		}
 	}
 
 	// move style.css from template to output directory
-	if err := copyFile(cfg.TemplateDir+"/style.css", cfg.OutputDir+"/assets/style.css"); err != nil {
+	if err := copyFile(themeStyle, cfg.OutputDir+"/assets/style.css"); err != nil {
 		return err
 	}
 
-	mdFiles, err := os.ReadDir(cfg.InputDir)
+	mdFiles, err := os.ReadDir(postsDir)
 	if err != nil {
 		return err
 	}
 	if len(mdFiles) == 0 {
-		return fmt.Errorf("no markdown files found in %s folder", cfg.InputDir)
-	}
-
-	s := site{
-		Config: cfg,
+		fmt.Printf("warning: no markdown files found in %s folder\n", postsDir)
 	}
 
 	for _, file := range mdFiles {
@@ -137,7 +178,7 @@ func generateSite(cfg config) error {
 
 		// build post object from markdown file
 		// read file contents into memory
-		fbytes, err := os.ReadFile(s.Config.InputDir + "/" + file.Name())
+		fbytes, err := os.ReadFile(postsDir + "/" + file.Name())
 		if err != nil {
 			return err
 		}
@@ -145,6 +186,8 @@ func generateSite(cfg config) error {
 		if err != nil {
 			return err
 		}
+
+		p.Link = p.getLink()
 
 		// add post to site struct
 		s.Posts = append(s.Posts, p)
@@ -169,7 +212,27 @@ func generateSite(cfg config) error {
 		},
 	}
 
-	tmpl := template.Must(template.New("baseHTML").Funcs(funcMap).ParseGlob(filepath.Join(cfg.TemplateDir, "*.html")))
+	// create post html files in posts directory
+	for _, p := range s.Posts {
+		file, err := os.Create(cfg.OutputDir + "/posts/" + p.getFileName())
+		if err != nil {
+			return err
+		}
+
+		tmpl := template.Must(template.New("postHTML").Funcs(funcMap).ParseGlob(filepath.Join(themeDir, "*.html")))
+
+		if err := tmpl.ExecuteTemplate(file, "postHTML", struct {
+			Post   post
+			Config config
+		}{
+			Post:   p,
+			Config: cfg,
+		}); err != nil {
+			return err
+		}
+	}
+
+	tmpl := template.Must(template.New("baseHTML").Funcs(funcMap).ParseGlob(filepath.Join(themeDir, "*.html")))
 	// write site to output directory as index.html
 
 	file, err := os.Create(cfg.OutputDir + "/index.html")
@@ -180,8 +243,6 @@ func generateSite(cfg config) error {
 	if err := tmpl.ExecuteTemplate(file, "baseHTML", s); err != nil {
 		return err
 	}
-
-	// move static files to output directory
 
 	return nil
 }
@@ -198,6 +259,7 @@ type post struct {
 	AuthorImg   string
 	CoverImg    string
 	Date        string
+	Link        string
 	Content     template.HTML
 }
 
@@ -277,6 +339,10 @@ func parseMarkdown(content []byte) (post, error) {
 	p.Content = template.HTML(blackfriday.Run([]byte(mdContent)))
 
 	return p, nil
+}
+
+func (p *post) getLink() string {
+	return p.Date + "-" + strings.ReplaceAll(p.Title, " ", "_") + ".html"
 }
 
 func init() {

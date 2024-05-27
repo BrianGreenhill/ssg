@@ -1,0 +1,46 @@
+{{define "postHTML"}}
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{{.Post.Title}} | {{.Post.Description}}">
+    <title>{{.Config.Title}} - {{.Post.Title}}</title>
+    <link rel="icon" href="../assets/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="../assets/style.css">
+</head>
+
+{{ template "body" .Config }}
+
+<article>
+    <header>
+        <div class="container">
+            <h1>{{.Post.Title}}</h1>
+            {{if hasCover .Post}}
+            <img class="cover-img" src="{{.Post.CoverImg}}" alt="{{.Post.Title}}" />
+            {{end}}
+            <p class="post-meta">
+                <img class="author-img" src="{{.Post.AuthorImg}}" alt="{{.Post.Author}}" />{{.Post.Author}}
+                |
+                {{.Post.Date}}
+            </p>
+        </div>
+    </header>
+    <section>
+        <div class="container">{{.Post.Content}}</div>
+    </section>
+</article>
+<footer class="container">
+    <div class="social-icons">
+        <a href="{{.Config.Github}}"><img src="../assets/github-mark.svg" alt="GitHub" /></a>
+        <a href="{{.Config.Linkedin}}"><img src="../assets/linkedin.png" alt="LinkedIn" /></a>
+        <a href="mailto:{{.Config.Email}}"><img src="../assets/email.svg" alt="Email" /></a>
+    </div>
+    &copy; {{now.UTC.Year}} {{.Config.Author}}. All rights reserved.
+</footer>
+
+{{ template "footer" .Config }}
+
+{{end}}

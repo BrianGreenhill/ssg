@@ -1,11 +1,15 @@
 # Static Site Generator
 
-Generate htmx sites from markdown files.
+Generate static site from markdown files. Use [Hugo](https://gohugo.io/) instead of this.
 
 ## Usage
 
 ```bash
-ssg --input README.md --output docs/index.html
+# generate static site
+ssg generate
+
+# watch for changes
+ssg watch
 ```
 
 ## Installation
@@ -14,12 +18,6 @@ ssg --input README.md --output docs/index.html
 go install github.com/briangreenhill/ssg@latest
 ```
 
-## Packages
-
-### parser
-### template
-### generator
-
 ## Features
 - [x] Markdown to HTML
 - [x] Template rendering
@@ -27,8 +25,9 @@ go install github.com/briangreenhill/ssg@latest
 - [x] Watch mode
 - [x] static assets
 - [x] blog site generation
-- [ ] individual post pages
-- [ ] blog site links to posts
+- [x] theme support
+- [x] individual post pages
+- [x] blog site links to posts
 - [ ] CLI
 - [ ] Deployment
 - [ ] URL Routing
