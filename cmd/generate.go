@@ -130,29 +130,31 @@ func generateSite(cfg config) error {
 	}
 
 	if _, err := os.Stat(cfg.ContentDir); os.IsNotExist(err) {
-		return fmt.Errorf("input folder does not exist: %w", err)
+		if err := os.Mkdir(cfg.ContentDir, 0755); err != nil {
+			return fmt.Errorf("error creating content directory: %w", err)
+		}
 	}
 	if _, err := os.Stat(cfg.OutputDir); os.IsNotExist(err) {
 		if err := os.Mkdir(cfg.OutputDir, 0755); err != nil {
-			return err
+			return fmt.Errorf("error creating output directory: %w", err)
 		}
 		if err := os.Mkdir(cfg.OutputDir+"/assets", 0755); err != nil {
-			return err
+			return fmt.Errorf("error creating output assets directory: %w", err)
 		}
 		if err := os.Mkdir(cfg.OutputDir+"/posts", 0755); err != nil {
-			return err
+			return fmt.Errorf("error creating output posts directory: %w", err)
 		}
 	}
 
 	if _, err := os.Stat(postsDir); os.IsNotExist(err) {
 		if err := os.Mkdir(postsDir, 0755); err != nil {
-			return err
+			return fmt.Errorf("error creating posts directory: %w", err)
 		}
 	}
 
 	if _, err := os.Stat(assetsDir); os.IsNotExist(err) {
 		if err := os.Mkdir(assetsDir, 0755); err != nil {
-			return err
+			return fmt.Errorf("error creating local assets directory: %w", err)
 		}
 	}
 
