@@ -53,6 +53,12 @@ var watchCmd = &cobra.Command{
 			}
 		}()
 
+		// generate the site initially
+		if err := generateSite(cfg); err != nil {
+			fmt.Println("error generating site")
+			fmt.Println(err)
+		}
+
 		breakpoint := make(chan struct{})
 		eventChan := make(chan fsnotify.Event)
 

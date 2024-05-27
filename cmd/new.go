@@ -41,7 +41,8 @@ var newCmd = &cobra.Command{
 		// pull the requested theme
 		// create a new config file
 
-		var needSite bool
+		needSite := true
+
 		form := huh.NewForm(
 			huh.NewGroup(
 				huh.NewConfirm().
@@ -65,9 +66,19 @@ var newCmd = &cobra.Command{
 			form := huh.NewForm(
 				huh.NewGroup(
 					huh.NewInput().
+						Title("Enter the theme").
+						Placeholder("default").
+						Value(&cfg.Theme),
+					huh.NewInput().
 						Title("Enter the site title").
 						Placeholder("My Site").
 						Value(&cfg.Title),
+					huh.NewInput().
+						Title("Enter a description of the site").
+						Placeholder("A site about things").
+						Value(&cfg.Description),
+				),
+				huh.NewGroup(
 					huh.NewInput().
 						Title("Enter the author's name").
 						Placeholder("John Doe").
@@ -76,10 +87,6 @@ var newCmd = &cobra.Command{
 						Title("Enter an image URL of the author").
 						Placeholder("https://example.com/image.jpg").
 						Value(&cfg.AuthorImg),
-					huh.NewInput().
-						Title("Enter a description of the site").
-						Placeholder("A site about things").
-						Value(&cfg.Description),
 					huh.NewInput().
 						Title("Enter the GitHub URL").
 						Placeholder("https://github.com/mona").
