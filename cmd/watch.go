@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -139,7 +140,11 @@ func watchForChanges(breakpoint chan struct{}, eventChan chan<- fsnotify.Event) 
 		}
 	}()
 
-	watchDirs := []string{cfg.getPostsDir(), cfg.getAssetsDir(), cfg.getThemeDir()}
+	watchDirs := []string{
+		filepath.Join("themes", cfg.Theme),
+		filepath.Join(cfg.ContentDir, postsDirName),
+		filepath.Join(cfg.ContentDir, assetsDirName),
+	}
 	for _, dir := range watchDirs {
 		if err = watcher.Add(dir); err != nil {
 			fmt.Println("error watching directory")

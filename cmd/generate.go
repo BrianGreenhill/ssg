@@ -27,6 +27,7 @@ import (
 	"html/template"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -36,6 +37,11 @@ import (
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/text"
 	"go.abhg.dev/goldmark/frontmatter"
+)
+
+const (
+	assetsDirName = "assets"
+	postsDirName  = "posts"
 )
 
 type config struct {
@@ -51,11 +57,6 @@ type config struct {
 	Email       string
 }
 
-type site struct {
-	Config config
-	Posts  []post
-}
-
 type post struct {
 	Title       string        `yaml:"title"`
 	Author      string        `yaml:"author"`
@@ -65,6 +66,11 @@ type post struct {
 	Date        string        `yaml:"date"`
 	Link        string        `yaml:"link"`
 	Content     template.HTML `yaml:"-"`
+}
+
+type siteData struct {
+	Config config
+	Posts  []post
 }
 
 // generateCmd represents the generate command
@@ -84,6 +90,168 @@ var generateCmd = &cobra.Command{
 			os.Exit(1)
 		}
 	},
+}
+
+func generateSite(cfg config) error {
+	siteData := siteData{Config: cfg}
+
+	themeDir := filepath.Join("themes", siteData.Config.Theme)
+	postsDir := filepath.Join(siteData.Config.ContentDir, postsDirName)
+	assetsDir := filepath.Join(siteData.Config.ContentDir, assetsDirName)
+	themeAssetsDir := filepath.Join(themeDir, assetsDirName)
+
+	if _, err := os.Stat(themeDir); os.IsNotExist(err) {
+		return fmt.Errorf("theme directory does not exist: %w", err)
+	}
+
+	requiredDirs := []string{
+		postsDir,
+		assetsDir,
+		filepath.Join(siteData.Config.OutputDir, assetsDirName),
+		filepath.Join(siteData.Config.OutputDir, postsDirName),
+	}
+
+	for _, dir := range requiredDirs {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("error creating directory %s: %w", dir, err)
+			}
+		}
+	}
+
+	assets, err := os.ReadDir(assetsDir)
+	if err != nil {
+		return err
+	}
+	if err := copyAssets(assetsDir, siteData.Config.OutputDir, assets); err != nil {
+		return err
+	}
+
+	themeAssets, err := os.ReadDir(themeAssetsDir)
+	if err != nil {
+		return err
+	}
+	if err := copyAssets(themeAssetsDir, siteData.Config.OutputDir, themeAssets); err != nil {
+		return err
+	}
+
+	if err := copyFile(filepath.Join(themeDir, "/style.css"), filepath.Join(siteData.Config.OutputDir, assetsDirName, "style.css")); err != nil {
+		return err
+	}
+
+	mdFiles, err := os.ReadDir(postsDir)
+	if err != nil {
+		return err
+	}
+	if len(mdFiles) == 0 {
+		fmt.Printf("warning: no markdown files found in %s folder\n", postsDir)
+	}
+
+	for _, file := range mdFiles {
+		if !strings.HasSuffix(file.Name(), ".md") && !strings.HasSuffix(file.Name(), ".markdown") {
+			continue
+		}
+
+		fbytes, err := os.ReadFile(filepath.Join(postsDir, file.Name()))
+		if err != nil {
+			return err
+		}
+		p, err := parseMarkdown(fbytes)
+		if err != nil {
+			return err
+		}
+
+		p.Link = fmt.Sprintf("%s-%s.html", p.Date, strings.ReplaceAll(p.Title, " ", "_"))
+
+		siteData.Posts = append(siteData.Posts, p)
+	}
+
+	funcMap := template.FuncMap{
+		"now": time.Now,
+		"hasCover": func(p post) bool {
+			return p.CoverImg != ""
+		},
+		"sortByDate": func(posts []post) []post {
+			sort.Slice(posts, func(i, j int) bool {
+				return posts[i].Date < posts[j].Date
+			})
+			return posts
+		},
+	}
+
+	// create post html files in posts directory
+	for _, p := range siteData.Posts {
+		file, err := os.Create(filepath.Join(siteData.Config.OutputDir, postsDirName, p.Link))
+		if err != nil {
+			return err
+		}
+
+		tmpl := template.Must(template.New("postHTML").Funcs(funcMap).ParseGlob(filepath.Join(themeDir, "*.html")))
+
+		if err := tmpl.ExecuteTemplate(file, "postHTML", struct {
+			Post   post
+			Config config
+		}{
+			Post:   p,
+			Config: siteData.Config,
+		}); err != nil {
+			return err
+		}
+	}
+
+	tmpl := template.Must(template.New("baseHTML").Funcs(funcMap).ParseGlob(filepath.Join(themeDir, "*.html")))
+	// write site to output directory as index.html
+
+	file, err := os.Create(filepath.Join(siteData.Config.OutputDir, "index.html"))
+	if err != nil {
+		return err
+	}
+
+	if err := tmpl.ExecuteTemplate(file, "baseHTML", siteData); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func parseMarkdown(content []byte) (post, error) {
+	ctx := parser.NewContext()
+	md := goldmark.New(goldmark.WithExtensions(&frontmatter.Extender{}))
+	md.Parser().Parse(text.NewReader(content), parser.WithContext(ctx))
+
+	d := frontmatter.Get(ctx)
+	if d == nil {
+		return post{}, fmt.Errorf("no frontmatter found")
+	}
+
+	var p post
+	if err := d.Decode(&p); err != nil {
+		return post{}, err
+	}
+
+	// the rest of the file is the content
+	var buf bytes.Buffer
+	if err := md.Convert(content, &buf); err != nil {
+		return post{}, err
+	}
+	p.Content = template.HTML(buf.String())
+
+	return p, nil
+}
+
+func copyAssets(assetDir, outputDir string, assets []os.DirEntry) error {
+	for _, asset := range assets {
+		if asset.IsDir() {
+			continue
+		}
+
+		fmt.Println("copying asset: ", asset.Name())
+		if err := copyFile(filepath.Join(assetDir, asset.Name()), filepath.Join(outputDir, assetsDirName, asset.Name())); err != nil {
+			return err
+		}
+
+	}
+	return nil
 }
 
 func copyFile(src, dst string) error {
@@ -119,234 +287,6 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-func (c *config) getThemeDir() string {
-	return filepath.Join("themes", c.Theme)
-}
-
-func (c *config) getPostsDir() string {
-	return filepath.Join(c.ContentDir, "posts")
-}
-
-func (c *config) getAssetsDir() string {
-	return filepath.Join(c.ContentDir, "assets")
-}
-
-func generateSite(cfg config) error {
-	s := site{
-		Config: cfg,
-	}
-
-	themeDir := s.Config.getThemeDir()
-	postsDir := s.Config.getPostsDir()
-	assetsDir := s.Config.getAssetsDir()
-	themeStyle := themeDir + "/style.css"
-	themeAssetsDir := themeDir + "/assets"
-
-	if _, err := os.Stat(themeDir); os.IsNotExist(err) {
-		return fmt.Errorf("theme directory does not exist: %w", err)
-	}
-
-	if _, err := os.Stat(s.Config.ContentDir); os.IsNotExist(err) {
-		if err := os.Mkdir("./"+s.Config.ContentDir, 0755); err != nil {
-			return fmt.Errorf("error creating content directory: %w", err)
-		}
-	}
-	if _, err := os.Stat(s.Config.OutputDir); os.IsNotExist(err) {
-		if err := os.Mkdir(s.Config.OutputDir, 0755); err != nil {
-			return fmt.Errorf("error creating output directory: %w", err)
-		}
-		if err := os.Mkdir(s.Config.OutputDir+"/assets", 0755); err != nil {
-			return fmt.Errorf("error creating output assets directory: %w", err)
-		}
-		if err := os.Mkdir(s.Config.OutputDir+"/posts", 0755); err != nil {
-			return fmt.Errorf("error creating output posts directory: %w", err)
-		}
-	}
-
-	if _, err := os.Stat(postsDir); os.IsNotExist(err) {
-		if err := os.Mkdir(postsDir, 0755); err != nil {
-			return fmt.Errorf("error creating posts directory: %w", err)
-		}
-	}
-
-	if _, err := os.Stat(assetsDir); os.IsNotExist(err) {
-		if err := os.Mkdir(assetsDir, 0755); err != nil {
-			return fmt.Errorf("error creating local assets directory: %w", err)
-		}
-	}
-
-	assets, err := os.ReadDir(assetsDir)
-	if err != nil {
-		return err
-	}
-	for _, asset := range assets {
-		if asset.IsDir() {
-			continue
-		}
-		fmt.Println("copying asset: ", asset.Name())
-		if err := copyFile(assetsDir+"/"+asset.Name(), "./"+s.Config.OutputDir+"/assets/"+asset.Name()); err != nil {
-			return err
-		}
-	}
-
-	themeAssets, err := os.ReadDir(themeAssetsDir)
-	if err != nil {
-		return err
-	}
-	for _, asset := range themeAssets {
-		if asset.IsDir() {
-			continue
-		}
-		fmt.Println("copying theme asset: ", asset.Name())
-		if err := copyFile(themeAssetsDir+"/"+asset.Name(), "./"+s.Config.OutputDir+"/assets/"+asset.Name()); err != nil {
-			return err
-		}
-	}
-
-	// move style.css from template to output directory
-	if err := copyFile(themeStyle, s.Config.OutputDir+"/assets/style.css"); err != nil {
-		return err
-	}
-
-	mdFiles, err := os.ReadDir(postsDir)
-	if err != nil {
-		return err
-	}
-	if len(mdFiles) == 0 {
-		fmt.Printf("warning: no markdown files found in %s folder\n", postsDir)
-	}
-
-	for _, file := range mdFiles {
-		if !strings.HasSuffix(file.Name(), ".md") && !strings.HasSuffix(file.Name(), ".markdown") {
-			continue
-		}
-
-		// build post object from markdown file
-		// read file contents into memory
-		fbytes, err := os.ReadFile(postsDir + "/" + file.Name())
-		if err != nil {
-			return err
-		}
-		p, err := parseMarkdown(fbytes)
-		if err != nil {
-			return err
-		}
-
-		p.Link = p.getLink()
-
-		// add post to site struct
-		s.Posts = append(s.Posts, p)
-	}
-
-	funcMap := template.FuncMap{
-		"now": time.Now,
-		"hasCover": func(p post) bool {
-			return p.CoverImg != ""
-		},
-		"sortByDate": func(posts []post) []post {
-			// sort posts by date
-			// newest first
-			for i := 0; i < len(posts); i++ {
-				for j := i + 1; j < len(posts); j++ {
-					if posts[i].Date < posts[j].Date {
-						posts[i], posts[j] = posts[j], posts[i]
-					}
-				}
-			}
-			return posts
-		},
-	}
-
-	// create post html files in posts directory
-	for _, p := range s.Posts {
-		file, err := os.Create(s.Config.OutputDir + "/posts/" + p.getFileName())
-		if err != nil {
-			return err
-		}
-
-		tmpl := template.Must(template.New("postHTML").Funcs(funcMap).ParseGlob(filepath.Join(themeDir, "*.html")))
-
-		if err := tmpl.ExecuteTemplate(file, "postHTML", struct {
-			Post   post
-			Config config
-		}{
-			Post:   p,
-			Config: s.Config,
-		}); err != nil {
-			return err
-		}
-	}
-
-	tmpl := template.Must(template.New("baseHTML").Funcs(funcMap).ParseGlob(filepath.Join(themeDir, "*.html")))
-	// write site to output directory as index.html
-
-	file, err := os.Create(s.Config.OutputDir + "/index.html")
-	if err != nil {
-		return err
-	}
-
-	if err := tmpl.ExecuteTemplate(file, "baseHTML", s); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (p *post) getFileName() string {
-	return p.Date + "-" + strings.ReplaceAll(p.Title, " ", "_") + ".html"
-}
-
-// parseMarkdown reads a markdown file and returns a post struct
-// containing the metadata and content
-// metadata is expected to be in the format:
-// ---
-// title: "title"
-// date: "YYYY-MM-DD"
-// author: "author"
-// description: "description"
-// author_image: "http://example.com/image.jpg"
-// cover_image: "http://example.com/image.jpg"
-// ---
-// content
-func parseMarkdown(content []byte) (post, error) {
-	ctx := parser.NewContext()
-	md := goldmark.New(goldmark.WithExtensions(&frontmatter.Extender{}))
-	md.Parser().Parse(text.NewReader(content), parser.WithContext(ctx))
-
-	d := frontmatter.Get(ctx)
-	if d == nil {
-		return post{}, fmt.Errorf("no frontmatter found")
-	}
-
-	var p post
-	if err := d.Decode(&p); err != nil {
-		return post{}, err
-	}
-
-	// the rest of the file is the content
-	var buf bytes.Buffer
-	if err := md.Convert(content, &buf); err != nil {
-		return post{}, err
-	}
-	p.Content = template.HTML(buf.String())
-
-	return p, nil
-}
-
-func (p *post) getLink() string {
-	return p.Date + "-" + strings.ReplaceAll(p.Title, " ", "_") + ".html"
-}
-
 func init() {
 	rootCmd.AddCommand(generateCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// generateCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// generateCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
