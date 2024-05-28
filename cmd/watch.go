@@ -24,8 +24,7 @@ package cmd
 import (
 	"fmt"
 	"net/http"
-	"os"
-	"strings"
+	"path/filepath"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -39,44 +38,72 @@ var cfg config
 var watchCmd = &cobra.Command{
 	Use:   "watch",
 	Short: "Watch mode",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := viper.Unmarshal(&cfg); err != nil {
-			fmt.Println("error unmarshalling config")
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("unable to decode into struct, %v", err)
+		}
+
+		// generate the site initially
+		if err := generateSite(cfg); err != nil {
+			return fmt.Errorf("error generating site: %v", err)
 		}
 
 		go func() {
 			if err := startServer(); err != nil {
-				fmt.Println("error starting server")
-				fmt.Println(err)
+				fmt.Printf("error starting server: %v", err)
 			}
 		}()
 
-		// generate the site initially
-		if err := generateSite(cfg); err != nil {
-			fmt.Println("error generating site")
-			fmt.Println(err)
+		return watchForChanges()
+	},
+}
+
+func watchForChanges() error {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("error creating watcher: %v", err)
+	}
+	defer watcher.Close()
+
+	themeDir := filepath.Join("themes", cfg.Theme)
+	content := filepath.Join(cfg.ContentDir, postsDirName)
+	assets := filepath.Join(cfg.ContentDir, assetsDirName)
+	for _, dir := range []string{themeDir, content, assets} {
+		if err := watcher.Add(dir); err != nil {
+			return fmt.Errorf("error watching directory: %v", err)
 		}
 
-		breakpoint := make(chan struct{})
-		eventChan := make(chan fsnotify.Event)
+	}
 
-		go watchForChanges(breakpoint, eventChan)
-
-		for {
-			<-breakpoint
-			event := <-eventChan
-			fmt.Println("Detected change in", event.Name)
-
-			if strings.HasSuffix(event.Name, ".md") || strings.HasSuffix(event.Name, ".html") || strings.HasSuffix(event.Name, ".css") || strings.HasSuffix(event.Name, ".markdown") {
+	debouncedChan := debounceEvents(500*time.Millisecond, watcher.Events)
+	for {
+		select {
+		case event, ok := <-debouncedChan:
+			if !ok {
+				return nil
+			}
+			fmt.Printf("Detected change in %s\n", event.Name)
+			if shouldRegenerate(event.Name) {
 				if err := generateSite(cfg); err != nil {
-					fmt.Println("error generating site")
-					fmt.Println(err)
+					fmt.Printf("error generating site: %v\n", err)
 				}
 			}
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return nil
+			}
+			return fmt.Errorf("error watching directory: %v", err)
 		}
-	},
+	}
+}
+
+func shouldRegenerate(filename string) bool {
+	switch filepath.Ext(filename) {
+	case ".md", ".html", ".css", ".markdown":
+		return true
+	default:
+		return false
+	}
 }
 
 func debounceEvents(interval time.Duration, eventChan <-chan fsnotify.Event) <-chan fsnotify.Event {
@@ -102,52 +129,6 @@ func debounceEvents(interval time.Duration, eventChan <-chan fsnotify.Event) <-c
 		}
 	}()
 	return debouncedChan
-}
-
-func watchForChanges(breakpoint chan struct{}, eventChan chan<- fsnotify.Event) {
-	// watch for changes in input directory
-	// if changes are detected, send signal to breakpoint
-	// to regenerate site
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		fmt.Println("error creating watcher")
-		fmt.Println(err)
-		return
-	}
-	defer watcher.Close()
-
-	done := make(chan bool)
-	debouncedChan := debounceEvents(500*time.Millisecond, watcher.Events)
-	go func() {
-		for {
-			select {
-			case event, ok := <-debouncedChan:
-				if !ok {
-					return
-				}
-				breakpoint <- struct{}{}
-				eventChan <- event
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				fmt.Println("error watching directory")
-				fmt.Println(err)
-				return
-			}
-		}
-	}()
-
-	watchDirs := []string{cfg.getPostsDir(), cfg.getAssetsDir(), cfg.getThemeDir()}
-	for _, dir := range watchDirs {
-		if err = watcher.Add(dir); err != nil {
-			fmt.Println("error watching directory")
-			fmt.Println(err)
-			return
-		}
-	}
-	<-done
 }
 
 func startServer() error {

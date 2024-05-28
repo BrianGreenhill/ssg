@@ -75,6 +75,9 @@ func initConfig() {
 		viper.AddConfigPath(".")
 		viper.SetConfigType("yaml")
 		viper.SetConfigName(".ssg")
+		viper.SetDefault("theme", "default")
+		viper.SetDefault("contentDir", "content")
+		viper.SetDefault("outputDir", "public")
 	}
 
 	viper.AutomaticEnv() // read in environment variables that match
