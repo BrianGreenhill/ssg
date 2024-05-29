@@ -59,7 +59,6 @@ func newSite() error {
 	}
 
 	if needSite {
-		// interview user for site details
 		var cfg config
 		form := huh.NewForm(
 			huh.NewGroup(
@@ -104,8 +103,6 @@ func newSite() error {
 			return err
 		}
 
-		// write the config struct to the yaml file
-
 		answers := map[string]string{
 			"theme":       "default",
 			"contentDir":  "content",
@@ -132,9 +129,6 @@ func newSite() error {
 			}
 		}
 
-		fmt.Println("Site created successfully")
-		// display config file
-		fmt.Println("Your site has been created with the following configuration:")
 		for k, v := range answers {
 			fmt.Printf("%s: %s\n", k, v)
 		}
