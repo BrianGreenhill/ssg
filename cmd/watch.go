@@ -44,7 +44,7 @@ var watchCmd = &cobra.Command{
 		}
 
 		// generate the site initially
-		if err := generateSite(cfg); err != nil {
+		if err := generateSite(&cfg); err != nil {
 			return fmt.Errorf("error generating site: %v", err)
 		}
 
@@ -84,7 +84,7 @@ func watchForChanges() error {
 			}
 			fmt.Printf("Detected change in %s\n", event.Name)
 			if shouldRegenerate(event.Name) {
-				if err := generateSite(cfg); err != nil {
+				if err := generateSite(&cfg); err != nil {
 					fmt.Printf("error generating site: %v\n", err)
 				}
 			}

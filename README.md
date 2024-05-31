@@ -54,6 +54,4 @@ This will watch for changes in the `posts` directory and regenerate the site fil
 - [x] individual post pages
 - [x] blog site links to posts
 - [x] create initial user experience (theme, config, etc)
-- [ ] CLI
-- [ ] Deployment
-- [ ] URL Routing
+- [x] install themes

@@ -23,11 +23,18 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"os/exec"
+	"slices"
 
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+)
+
+const (
+	themeRepo = "https://github.com/briangreenhill/ssg"
 )
 
 // newCmd represents the new command
@@ -35,15 +42,13 @@ var newCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Create a new site",
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := newSite(); err != nil {
-			fmt.Println("error creating new site")
-			fmt.Println(err)
-			os.Exit(1)
+		if err := createSite(); err != nil {
+			log.Fatal("error creating site ", err)
 		}
 	},
 }
 
-func newSite() error {
+func createSite() error {
 	needSite := true
 	form := huh.NewForm(
 		huh.NewGroup(
@@ -54,7 +59,7 @@ func newSite() error {
 
 	if _, err := os.Stat(".ssg.yaml"); err == nil {
 		if err := form.Run(); err != nil {
-			return err
+			return fmt.Errorf("error running form: %w", err)
 		}
 	}
 
@@ -100,51 +105,149 @@ func newSite() error {
 		)
 
 		if err := form.Run(); err != nil {
-			return err
+			return fmt.Errorf("error running form: %w", err)
 		}
 
-		answers := map[string]string{
-			"theme":       "default",
-			"contentDir":  "content",
-			"outputDir":   "public",
-			"title":       cfg.Title,
-			"author":      cfg.Author,
-			"authorImg":   cfg.AuthorImg,
-			"description": cfg.Description,
-			"github":      cfg.Github,
-			"linkedin":    cfg.Linkedin,
-			"email":       cfg.Email,
+		if cfg.Theme == "" {
+			viper.Set("theme", "default")
+			cfg.Theme = "default"
+		}
+		if cfg.ContentDir == "" {
+			viper.Set("contentDir", "content")
+			cfg.ContentDir = "content"
+		}
+		if cfg.OutputDir == "" {
+			viper.Set("outputDir", "public")
+			cfg.OutputDir = "public"
+		}
+		if cfg.Title == "" {
+			viper.Set("title", "Finn the Human")
+			cfg.Title = "Finn the Human"
+		}
+		if cfg.Author == "" {
+			viper.Set("author", "Finn the Human")
+			cfg.Author = "Finn the Human"
+		}
+		if cfg.AuthorImg == "" {
+			viper.Set("authorImg", "https://octodex.github.com/images/adventure-cat.png")
+			cfg.AuthorImg = "https://octodex.github.com/images/adventure-cat.png"
+		}
+		if cfg.Description == "" {
+			viper.Set("description", "Mathematical!")
+			cfg.Description = "Mathematical!"
+		}
+		if cfg.Github == "" {
+			viper.Set("github", "https://github.com/mona")
+			cfg.Github = "https://github.com/mona"
+		}
+		if cfg.Linkedin == "" {
+			viper.Set("linkedin", "https://linkedin.com/in/mona")
+			cfg.Linkedin = "https://linkedin.com/in/mona"
 		}
 
-		configFile, err := os.Create(".ssg.yaml")
-		if err != nil {
-			return err
-		}
-		defer configFile.Close()
+		viper.Set("theme", cfg.Theme)
+		viper.Set("contentDir", cfg.ContentDir)
+		viper.Set("outputDir", cfg.OutputDir)
+		viper.Set("title", cfg.Title)
+		viper.Set("author", cfg.Author)
+		viper.Set("authorImg", cfg.AuthorImg)
+		viper.Set("description", cfg.Description)
+		viper.Set("github", cfg.Github)
+		viper.Set("linkedin", cfg.Linkedin)
+		viper.Set("email", cfg.Email)
 
-		for k, v := range answers {
-			_, err := configFile.WriteString(fmt.Sprintf("%s: %s\n", k, v))
-			if err != nil {
-				return err
-			}
+		if err := viper.WriteConfig(); err != nil {
+			return fmt.Errorf("error writing config: %w", err)
 		}
 
-		for k, v := range answers {
-			fmt.Printf("%s: %s\n", k, v)
+		fmt.Println("Selecting theme and downloading...")
+		if err := selectTheme(cfg.Theme); err != nil {
+			return fmt.Errorf("error selecting theme: %w", err)
 		}
+		fmt.Println("downloaded theme", cfg.Theme)
 	}
 
 	fmt.Println("Generating site...")
 
 	if err := viper.Unmarshal(&cfg); err != nil {
-		return err
+		return fmt.Errorf("unable to decode into struct: %w", err)
 	}
 
-	if err := generateSite(cfg); err != nil {
+	if err := generateSite(&cfg); err != nil {
 		return err
 	}
 
 	fmt.Println("Site generated successfully. Run `ssg watch` to start the server.")
+	return nil
+}
+
+func selectTheme(theme string) error {
+	if theme == "" {
+		return fmt.Errorf("theme cannot be empty")
+	}
+
+	themes := []string{"default"}
+
+	if !slices.Contains(themes, theme) {
+		return fmt.Errorf("theme %s not found", theme)
+	}
+
+	if err := downloadTheme(theme); err != nil {
+		return fmt.Errorf("error downloading theme: %w", err)
+	}
+
+	return nil
+}
+
+func downloadTheme(theme string) error {
+	directory := "tmp"
+
+	// make tmp directory
+	if err := os.MkdirAll(directory, 0755); err != nil {
+		return fmt.Errorf("error creating directory %s: %w", directory, err)
+	}
+
+	// download theme from github to tmp directory
+	cmd := exec.Command("git", "clone", themeRepo, fmt.Sprintf("tmp"))
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("error cloning theme: %w", err)
+	}
+
+	// copy theme to the current directory
+	themeDir := fmt.Sprintf("tmp/themes/%s", theme)
+	if err := copyDir(themeDir, "themes"); err != nil {
+		return fmt.Errorf("error copying theme: %w", err)
+	}
+
+	// remove tmp directory
+	if err := os.RemoveAll(directory); err != nil {
+		return fmt.Errorf("error removing directory %s: %w", directory, err)
+	}
+
+	return nil
+}
+
+func copyDir(src, dest string) error {
+	// copy src directory to destination
+
+	// check if src directory exists
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return fmt.Errorf("source directory does not exist: %w", err)
+	}
+
+	// check if dest directory exists
+	if _, err := os.Stat(dest); os.IsNotExist(err) {
+		if err := os.MkdirAll(dest, 0755); err != nil {
+			return fmt.Errorf("error creating directory %s: %w", dest, err)
+		}
+	}
+
+	// copy files from src to dest
+	cmd := exec.Command("cp", "-r", src, dest)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("error copying directory: %w", err)
+	}
+
 	return nil
 }
 
