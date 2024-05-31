@@ -102,7 +102,21 @@ Your post content goes here!
 
 `, p.Title, p.Date, p.Author, p.AuthorImg, p.Description)
 
+	var shouldCreate = true
 	filename := fmt.Sprintf("%s/%s-%s.md", filepath.Join(cfg.ContentDir, postsDirName), p.Date, strings.ReplaceAll(p.Title, " ", "_"))
+	if _, err := os.Stat(filename); err == nil {
+		if err := huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().Title("Post already exists. Continue?").Value(&shouldCreate),
+		)).Run(); err != nil {
+			return fmt.Errorf("error running form: %w", err)
+		}
+	}
+
+	if shouldCreate == false {
+		fmt.Println("Post creation cancelled")
+		return nil
+	}
+
 	file, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("error creating post file: %w", err)
