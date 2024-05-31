@@ -25,6 +25,11 @@ cp -r ../ssg/themes/default themes/<your-theme>
 ssg new
 
 # theme: <your-theme>
+
+# create new post
+ssg post
+
+# or use the archetype/post.md file to create a new post manually
 ```
 
 Follow the prompts to create a new site. Once your new site is ready, you can start writing posts.
@@ -55,3 +60,5 @@ This will watch for changes in the `posts` directory and regenerate the site fil
 - [x] blog site links to posts
 - [x] create initial user experience (theme, config, etc)
 - [x] install themes
+- [x] add new post command
+- [ ] add draft mode for posts
