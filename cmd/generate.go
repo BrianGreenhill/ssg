@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -69,7 +70,7 @@ type post struct {
 }
 
 type siteData struct {
-	Config config
+	Config *config
 	Posts  []post
 }
 
@@ -80,21 +81,16 @@ var generateCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		var cfg config
 		if err := viper.Unmarshal(&cfg); err != nil {
-			fmt.Println("error unmarshalling config")
-			fmt.Println(err)
-			os.Exit(1)
+			log.Fatal("error unmarshalling config", err)
 		}
-		if err := generateSite(cfg); err != nil {
-			fmt.Println("error generating site")
-			fmt.Println(err)
-			os.Exit(1)
+		if err := generateSite(&cfg); err != nil {
+			log.Fatal("error generating site", err)
 		}
 	},
 }
 
-func generateSite(cfg config) error {
+func generateSite(cfg *config) error {
 	siteData := siteData{Config: cfg}
-
 	themeDir := filepath.Join("themes", siteData.Config.Theme)
 	postsDir := filepath.Join(siteData.Config.ContentDir, postsDirName)
 	assetsDir := filepath.Join(siteData.Config.ContentDir, assetsDirName)
@@ -121,27 +117,27 @@ func generateSite(cfg config) error {
 
 	assets, err := os.ReadDir(assetsDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("error reading assets directory: %w", err)
 	}
 	if err := copyAssets(assetsDir, siteData.Config.OutputDir, assets); err != nil {
-		return err
+		return fmt.Errorf("error copying assets: %w", err)
 	}
 
 	themeAssets, err := os.ReadDir(themeAssetsDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("error reading theme assets directory: %w", err)
 	}
 	if err := copyAssets(themeAssetsDir, siteData.Config.OutputDir, themeAssets); err != nil {
-		return err
+		return fmt.Errorf("error copying theme assets: %w", err)
 	}
 
 	if err := copyFile(filepath.Join(themeDir, "/style.css"), filepath.Join(siteData.Config.OutputDir, assetsDirName, "style.css")); err != nil {
-		return err
+		return fmt.Errorf("error copying style.css: %w", err)
 	}
 
 	mdFiles, err := os.ReadDir(postsDir)
 	if err != nil {
-		return err
+		return fmt.Errorf("error reading posts directory: %w", err)
 	}
 	if len(mdFiles) == 0 {
 		fmt.Printf("warning: no markdown files found in %s folder\n", postsDir)
@@ -154,11 +150,11 @@ func generateSite(cfg config) error {
 
 		fbytes, err := os.ReadFile(filepath.Join(postsDir, file.Name()))
 		if err != nil {
-			return err
+			return fmt.Errorf("error reading markdown file: %w", err)
 		}
 		p, err := parseMarkdown(fbytes)
 		if err != nil {
-			return err
+			return fmt.Errorf("error parsing markdown: %w", err)
 		}
 
 		p.Link = fmt.Sprintf("%s-%s.html", p.Date, strings.ReplaceAll(p.Title, " ", "_"))
@@ -183,19 +179,19 @@ func generateSite(cfg config) error {
 	for _, p := range siteData.Posts {
 		file, err := os.Create(filepath.Join(siteData.Config.OutputDir, postsDirName, p.Link))
 		if err != nil {
-			return err
+			return fmt.Errorf("error creating post file: %w", err)
 		}
 
 		tmpl := template.Must(template.New("postHTML").Funcs(funcMap).ParseGlob(filepath.Join(themeDir, "*.html")))
 
 		if err := tmpl.ExecuteTemplate(file, "postHTML", struct {
 			Post   post
-			Config config
+			Config *config
 		}{
 			Post:   p,
 			Config: siteData.Config,
 		}); err != nil {
-			return err
+			return fmt.Errorf("error executing template: %w", err)
 		}
 	}
 
@@ -247,7 +243,7 @@ func copyAssets(assetDir, outputDir string, assets []os.DirEntry) error {
 
 		fmt.Println("copying asset: ", asset.Name())
 		if err := copyFile(filepath.Join(assetDir, asset.Name()), filepath.Join(outputDir, assetsDirName, asset.Name())); err != nil {
-			return err
+			return fmt.Errorf("error copying asset: %w", err)
 		}
 
 	}
@@ -281,7 +277,7 @@ func copyFile(src, dst string) error {
 	defer w.Close()
 
 	if _, err := w.ReadFrom(r); err != nil {
-		return err
+		return fmt.Errorf("error copying file: %w", err)
 	}
 
 	return nil

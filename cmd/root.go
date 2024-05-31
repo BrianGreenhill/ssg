@@ -78,6 +78,13 @@ func initConfig() {
 		viper.SetDefault("theme", "default")
 		viper.SetDefault("contentDir", "content")
 		viper.SetDefault("outputDir", "public")
+		viper.SetDefault("title", "My Site")
+		viper.SetDefault("author", "Finn the Human")
+		viper.SetDefault("authorImg", "https://octodex.github.com/images/adventure-cat.png ")
+		viper.SetDefault("description", "Mathematical!")
+		viper.SetDefault("github", "https://github.com/mona")
+		viper.SetDefault("linkedin", "https://linkedin.com/in/mona")
+		viper.SetDefault("email", "user@example.net")
 	}
 
 	viper.AutomaticEnv() // read in environment variables that match
