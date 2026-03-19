@@ -33,6 +33,7 @@ import (
 )
 
 var cfg config
+var watchPort int
 
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
@@ -49,7 +50,7 @@ var watchCmd = &cobra.Command{
 		}
 
 		go func() {
-			if err := startServer(); err != nil {
+			if err := startServer(watchPort); err != nil {
 				fmt.Printf("error starting server: %v", err)
 			}
 		}()
@@ -131,19 +132,21 @@ func debounceEvents(interval time.Duration, eventChan <-chan fsnotify.Event) <-c
 	return debouncedChan
 }
 
-func startServer() error {
+func startServer(port int) error {
 	mux := http.NewServeMux()
 
-	// serve files form configured output directory
+	// serve files from configured output directory
 	dir := viper.GetString("outputDir")
+	addr := fmt.Sprintf(":%d", port)
 	mux.Handle("/", http.FileServer(http.Dir(dir)))
 	fmt.Println("Serving files from", dir)
-	fmt.Println("Starting server on :8080")
+	fmt.Printf("Starting server on %s\n", addr)
 	fmt.Println()
-	fmt.Println("Visit http://localhost:8080 to view your site")
-	return http.ListenAndServe(":8080", mux)
+	fmt.Printf("Visit http://localhost:%d to view your site\n", port)
+	return http.ListenAndServe(addr, mux)
 }
 
 func init() {
+	watchCmd.Flags().IntVarP(&watchPort, "port", "p", 8080, "port for the development server")
 	rootCmd.AddCommand(watchCmd)
 }
