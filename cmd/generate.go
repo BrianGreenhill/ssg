@@ -28,6 +28,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -218,7 +219,9 @@ func generateSite(cfg *config) error {
 
 func parseMarkdown(content []byte) (post, error) {
 	ctx := parser.NewContext()
-	md := goldmark.New(goldmark.WithExtensions(&frontmatter.Extender{}))
+	md := goldmark.New(
+		goldmark.WithExtensions(&frontmatter.Extender{}),
+	)
 	md.Parser().Parse(text.NewReader(content), parser.WithContext(ctx))
 
 	d := frontmatter.Get(ctx)
@@ -231,14 +234,41 @@ func parseMarkdown(content []byte) (post, error) {
 		return post{}, err
 	}
 
-	// the rest of the file is the content
+	// render markdown in safe mode (strips raw HTML)
 	var buf bytes.Buffer
 	if err := md.Convert(content, &buf); err != nil {
 		return post{}, err
 	}
-	p.Content = template.HTML(buf.String())
+
+	// extract @agent-context comment blocks from the raw source
+	// and append them to the rendered output
+	rendered := buf.String()
+	rendered = strings.ReplaceAll(rendered, "<!-- raw HTML omitted -->", "")
+	agentBlocks := extractAgentContext(content)
+	if agentBlocks != "" {
+		rendered += "\n" + agentBlocks
+	}
+
+	p.Content = template.HTML(rendered)
 
 	return p, nil
+}
+
+// agentContextRe matches <!-- @agent-context ... --> comment blocks
+var agentContextRe = regexp.MustCompile(`(?s)<!--\s*@agent-context\b.*?-->`)
+
+// extractAgentContext returns all @agent-context HTML comment blocks
+// from the raw markdown source, preserving them verbatim.
+func extractAgentContext(content []byte) string {
+	matches := agentContextRe.FindAll(content, -1)
+	if len(matches) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, m := range matches {
+		parts = append(parts, string(m))
+	}
+	return strings.Join(parts, "\n")
 }
 
 func copyAssets(assetDir, outputDir string, assets []os.DirEntry) error {
