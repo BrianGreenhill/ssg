@@ -65,6 +65,7 @@ type post struct {
 	AuthorImg   string        `yaml:"author_image"`
 	CoverImg    string        `yaml:"cover_image"`
 	Date        string        `yaml:"date"`
+	Draft       bool          `yaml:"draft"`
 	Link        string        `yaml:"link"`
 	Content     template.HTML `yaml:"-"`
 }
@@ -155,6 +156,11 @@ func generateSite(cfg *config) error {
 		p, err := parseMarkdown(fbytes)
 		if err != nil {
 			return fmt.Errorf("error parsing markdown: %w", err)
+		}
+
+		if p.Draft {
+			fmt.Printf("skipping draft: %s\n", p.Title)
+			continue
 		}
 
 		p.Link = fmt.Sprintf("%s-%s.html", p.Date, strings.ReplaceAll(p.Title, " ", "_"))

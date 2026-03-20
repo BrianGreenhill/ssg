@@ -89,13 +89,13 @@ func createPost(cfg *config) error {
 		p.Description = "Replace this with a short description of the post"
 	}
 
-	// create frontmatter from form values
 	frontmatter := fmt.Sprintf(`---
 title: %s
 date: %s
 author: %s
 author_image: %s
 description: %s
+draft: true
 ---
 
 Your post content goes here!
