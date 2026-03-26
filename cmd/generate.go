@@ -164,7 +164,7 @@ func generateSite(cfg *config) error {
 			continue
 		}
 
-		p.Link = fmt.Sprintf("%s-%s.html", p.Date, strings.ReplaceAll(p.Title, " ", "_"))
+		p.Link = fmt.Sprintf("%s-%s.html", p.Date, slugify(p.Title))
 
 		siteData.Posts = append(siteData.Posts, p)
 	}
@@ -317,6 +317,14 @@ func copyFile(src, dst string) error {
 	}
 
 	return nil
+}
+
+var nonAlphanumeric = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
+
+func slugify(s string) string {
+	s = strings.ReplaceAll(s, " ", "_")
+	s = nonAlphanumeric.ReplaceAllString(s, "")
+	return s
 }
 
 func init() {
