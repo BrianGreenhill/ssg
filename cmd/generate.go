@@ -159,7 +159,7 @@ func generateSite(cfg *config) error {
 			return fmt.Errorf("error parsing markdown: %w", err)
 		}
 
-		if p.Draft {
+		if p.Draft && !includeDrafts {
 			fmt.Printf("skipping draft: %s\n", p.Title)
 			continue
 		}
