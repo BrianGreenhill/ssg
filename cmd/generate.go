@@ -176,7 +176,7 @@ func generateSite(cfg *config) error {
 		},
 		"sortByDate": func(posts []post) []post {
 			sort.Slice(posts, func(i, j int) bool {
-				return posts[i].Date < posts[j].Date
+				return posts[i].Date > posts[j].Date
 			})
 			return posts
 		},
