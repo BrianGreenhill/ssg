@@ -29,7 +29,10 @@ import (
 	"github.com/spf13/viper"
 )
 
-var cfgFile string
+var (
+	cfgFile       string
+	includeDrafts bool
+)
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -54,6 +57,7 @@ func init() {
 	// will be global for your application.
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.ssg.yaml)")
+	rootCmd.PersistentFlags().BoolVar(&includeDrafts, "drafts", false, "include draft posts")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
